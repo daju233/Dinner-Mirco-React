@@ -1,66 +1,3 @@
-function createElement(type, props, ...children) {
-  return {
-    type,
-    props: {
-      ...props,
-      children: children.map((child) =>
-        typeof child === "object" ? child : createTextElement(child)
-      ),
-    },
-  };
-}
-
-function createTextElement(text) {
-  return {
-    type: "TEXT_ELEMENT",
-    props: {
-      nodeValue: text,
-      children: [],
-    },
-  };
-}
-//提交节点树
-function commitRoot() {
-  //TODO add notes to dom
-  deletions.forEach(commitWork);
-  commitWork(wipRoot.child);
-  currentFiber = wipRoot;
-  wipRoot = null;
-}
-
-function commitWork(fiber) {
-  if (!fiber) {
-    return;
-  }
-  const domParent = fiber.parent.dom;
-  if (fiber.effectTag === "PLACEMENT" && fiber.dom != null) {
-    domParent.appendChild(fiber.dom);
-  } else if (fiber.effectTag === "DELETION") {
-    domParent.removeChild(fiber.dom);
-  } else if (fiber.effectTag === "UPDATE" && fiber.dom != null) {
-    updateDom(fiber.dom, fiber.alternate.dom, fiber.props);
-  }
-  // domParent.appendChild(fiber.dom);
-  // commitWork(fiber.child);
-  // commitWork(fiber.sibling);
-}
-
-function render(element, container) {
-  wipRoot = {
-    dom: container,
-    props: {
-      children: [element],
-    },
-    alternate: currentFiber,
-  };
-  deletions = [];
-  nextUnitOfWork = wipRoot;
-}
-let nextUnitOfWork = null;
-let currentFiber = null;
-let wipRoot = null;
-let deletions = null;
-
 //创建fiber的dom
 function createDom(fiber) {
   const dom =
@@ -73,12 +10,60 @@ function createDom(fiber) {
     .forEach((name) => {
       dom[name] = fiber.props[name];
     });
-  //递归渲染子元素
-  fiber.props.children.forEach((child) => render(child, dom));
-  //追加到父节点
-  container.appendChild(dom);
+  // //递归渲染子元素
+  // fiber.props.children.forEach((child) => render(child, dom));
+  // //追加到父节点
+  // container.appendChild(dom);
   return dom;
 }
+
+//渲染root
+//Commit Phase
+function commitRoot() {
+  deletions.forEach((item) => commitWork(item));
+  commitWork(wipRoot.child);
+  // commit完成后，把wipRoot变为currentRoot
+  currentFiber = wipRoot;
+  wipRoot = null;
+}
+
+function render(element, container) {
+  //Root Fiber
+  wipRoot = {
+    dom: container,
+    props: {
+      children: [element],
+    },
+    alternate: currentFiber,
+  };
+  deletions = [];
+  nextUnitOfWork = wipRoot;
+}
+
+function commitWork(fiber) {
+  if (!fiber) {
+    return;
+  }
+  let domParentFiber = fiber.parent;
+  while (!domParentFiber.dom) {
+    domParentFiber = domParentFiber.parent;
+  }
+  const domParent = domParentFiber.dom;
+  if (fiber.effectTag === "PLACEMENT" && fiber.dom != null) {
+    domParent.appendChild(fiber.dom);
+  } else if (fiber.effectTag === "DELETION" && fiber.dom != null) {
+    commitDeletion(fiber, domParent);
+  } else if (fiber.effectTag === "UPDATE" && fiber.dom != null) {
+    updateDom(fiber.dom, fiber.alternate.dom, fiber.props);
+  }
+  commitWork(fiber.child);
+  commitWork(fiber.sibling);
+}
+
+let nextUnitOfWork = null;
+let currentFiber = null;
+let wipRoot = null;
+let deletions = null;
 
 const isEvent = (key) => key.startWith("on");
 const isProperty = (key) => key !== "children" && !isEvent(key);
@@ -95,7 +80,15 @@ function updateDom(dom, prevProps, nextProps) {
       //此处name应当是一个函数
       dom[name] = "";
     });
-
+  //删除组件
+  function commitDeletion(fiber, domParent) {
+    if (fiber.dom) {
+      domParent.removeChild(fiber.dom);
+    } else {
+      commitDeletion(fiber.child, domParent);
+      //为什么函数组件要向下查找？？？---因为函数组件嵌套后最终返回的是一个DOM节点，只能通过操作这个DOM节点删除函数组件和子节点
+    }
+  }
   Object.keys(nextProps)
     .filter(isProperty)
     .filter(isNew(prevProps, nextProps))
@@ -122,14 +115,12 @@ function workLoop(deadline) {
 requestIdleCallback(workLoop);
 
 function performUnitOfWork(fiber) {
-  //创建fiber DOM
-  if (!fiber.dom) {
-    fiber.dom = createDom(fiber);
+  const isFunctionComponent = fiber.type instanceof Function;
+  if (isFunctionComponent) {
+    updateFunctionComponent(fiber);
+  } else {
+    updateHostComponent(fiber);
   }
-  //添加fiber子节点
-  const elements = fiber.props.children;
-  reconclieChildren(fiber, elements);
-
   //返回子节点
   if (fiber.child) {
     return fiber.child;
@@ -144,6 +135,21 @@ function performUnitOfWork(fiber) {
   }
 }
 
+const updateHostComponent = (fiber) => {
+  //创建fiber DOM
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber);
+  }
+  //添加fiber子节点
+  const elements = fiber.props.children;
+  reconclieChildren(fiber, elements);
+};
+
+const updateFunctionComponent = (fiber) => {
+  const children = [fiber.type(fiber.props)];
+  reconclieChildren(fiber, children);
+};
+
 function reconclieChildren(wipFiber, elements) {
   let index = 0;
   let oldFiber = wipFiber.alternate && wipFiber.alternate.child;
@@ -151,9 +157,9 @@ function reconclieChildren(wipFiber, elements) {
   //添加与fiber同一层的subling
   while (index < elements.length || oldFiber != null) {
     const element = elements[index];
-    const newFiber = null;
-
     const sameType = oldFiber && element && element.type == oldFiber.type;
+
+    let newFiber = null;
 
     if (sameType) {
       newFiber = {
@@ -186,7 +192,7 @@ function reconclieChildren(wipFiber, elements) {
     }
 
     if (index === 0) {
-      fiber.child = newFiber;
+      wipFiber.child = newFiber;
     } else {
       prevSibling.sibling = newFiber;
     }
@@ -194,9 +200,5 @@ function reconclieChildren(wipFiber, elements) {
     index++;
   }
 }
-const Dinner = {
-  createElement,
-  render,
-};
 
-export default Dinner;
+export default render;

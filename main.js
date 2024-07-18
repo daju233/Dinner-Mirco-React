@@ -1,17 +1,10 @@
-import "./style.css";
-import Dinner from "./Dinner.js";
+import { createElement, render } from "./Dinner-React/index.js";
 
-/** @jsx Didact.createElement */
-const element = Dinner.createElement(
-  "h1",
-  { id: "title", style: "background:skyblue" },
-  "Hello World",
-  Dinner.createElement(
-    "h2",
-    { id: "hh2" },
-    "fuckyou",
-    Dinner.createElement("a", { href: "https://www.baidu.com" }, "百度")
-  )
-);
-// const H1 = Dinner.createElement("h1", { id: "title" }, "Hello World");
-Dinner.render(element, document.getElementById("root"));
+const container = document.getElementById("#root");
+const App = (props) => {
+  return createElement("h1", null, "Hi", props.name);
+};
+
+const element = createElement(App, { name: "Maxwell" });
+
+render(element, container);
