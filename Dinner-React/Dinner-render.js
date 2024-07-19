@@ -21,8 +21,8 @@ function commitRoot() {
   deletions.forEach((item) => commitWork(item));
   commitWork(wipRoot.child);
   // commit完成后，把wipRoot变为currentRoot
-  currentFiber = wipRoot;
-  console.log(currentFiber);
+  currentRoot = wipRoot;
+  console.log(currentRoot);
   wipRoot = null;
 }
 
@@ -33,7 +33,7 @@ function render(element, container) {
     props: {
       children: [element],
     },
-    alternate: currentFiber,
+    alternate: currentRoot,
   };
 
   console.log("render", element, container, wipRoot);
@@ -56,29 +56,31 @@ function commitWork(fiber) {
   } else if (fiber.effectTag === "DELETION" && fiber.dom != null) {
     commitDeletion(fiber, domParent);
   } else if (fiber.effectTag === "UPDATE" && fiber.dom != null) {
-    updateDom(fiber.dom, fiber.alternate.dom, fiber.props);
+    updateDom(fiber.dom, fiber.alternate.props, fiber.props);
   }
   commitWork(fiber.child);
   commitWork(fiber.sibling);
 }
 
 let nextUnitOfWork = null;
-let currentFiber = null;
+// 正在进行的渲染
 let wipRoot = null;
+// 上次渲染
+let currentRoot = null;
+// 要删除的fiber
 let deletions = null;
 
-const isEvent = (key) => key.startWith("on");
+const isEvent = (key) => key.startsWith("on");
 const isProperty = (key) => key !== "children" && !isEvent(key);
 const isNew = (prev, next) => (key) => prev[key] != next[key];
 const isGone = (prev, next) => (key) => !(key in next);
 
 function updateDom(dom, prevProps, nextProps) {
+  console.log("prev", prevProps, "next", nextProps);
   Object.keys(prevProps)
     .filter(isProperty)
     .filter(isGone(prevProps, nextProps))
     .forEach((name) => {
-      const eventType = name.toLowerCase().substring(2);
-      dom.removeEventListener(eventType, prevProps[name]);
       //此处name应当是一个函数
       dom[name] = "";
     });
@@ -86,9 +88,21 @@ function updateDom(dom, prevProps, nextProps) {
     .filter(isProperty)
     .filter(isNew(prevProps, nextProps))
     .forEach((name) => {
+      dom[name] = nextProps[name];
+    });
+  Object.keys(prevProps)
+    .filter(isEvent)
+    .filter(isGone(prevProps, nextProps))
+    .forEach((name) => {
+      const eventType = name.toLowerCase().substring(2);
+      dom.removeEventListener(eventType, prevProps[name]);
+    });
+  Object.keys(nextProps)
+    .filter(isEvent)
+    .filter(isNew(prevProps, nextProps))
+    .forEach((name) => {
       const eventType = name.toLowerCase().substring(2);
       dom.addEventListener(eventType, nextProps[name]);
-      dom[name] = nextProps[name];
     });
 }
 //删除组件
@@ -97,7 +111,8 @@ function commitDeletion(fiber, domParent) {
     domParent.removeChild(fiber.dom);
   } else {
     commitDeletion(fiber.child, domParent);
-    //为什么函数组件要向下查找？？？---因为函数组件嵌套后最终返回的是一个DOM节点，只能通过操作这个DOM节点删除函数组件和子节点
+    //为什么函数组件要向下查找？？？因为fiber节点里面存的是fiber对象.
+    //fiber对象里有type(函数组件)和child，函数组件(实际应该说函数组件的fiber对象)本身没有dom。child里面才是真正的dom
   }
 }
 
@@ -149,12 +164,48 @@ const updateHostComponent = (fiber) => {
   const elements = fiber.props.children;
   reconclieChildren(fiber, elements);
 };
-
+let wipFiber = null;
+let hookIndex = null;
+// 处理函数式组件
 const updateFunctionComponent = (fiber) => {
+  wipFiber = fiber;
+  hookIndex = 0;
+  wipFiber.hooks = [];
   const children = [fiber.type(fiber.props)];
   console.log("fuctionComponent", fiber, children);
   reconclieChildren(fiber, children);
 };
+
+//useState Hook
+//hook是什么？
+export function useState(init) {
+  const oldHook =
+    wipFiber.alternate &&
+    wipFiber.alternate.hooks &&
+    wipFiber.alternate.hooks[hookIndex];
+  const hook = {
+    state: oldHook ? oldHook.state : init,
+    queue: [],
+  };
+  const actions = oldHook ? oldHook.queue : [];
+  actions.forEach((action) => {
+    hook.state = action(hook.state);
+  });
+  const setState = (action) => {
+    // 通知更新
+    hook.queue.push(action);
+    wipRoot = {
+      dom: currentRoot.dom,
+      props: currentRoot.props,
+      alternate: currentRoot,
+    };
+    nextUnitOfWork = wipRoot;
+    deletions = [];
+  };
+  wipFiber.hooks.push(hook);
+  hookIndex++;
+  return [hook.state, setState];
+}
 
 function reconclieChildren(wipFiber, elements) {
   let index = 0;

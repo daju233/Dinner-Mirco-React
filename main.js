@@ -1,18 +1,20 @@
 import { createElement, render } from "./Dinner-React/index.js";
+import { useState } from "./Dinner-React/Dinner-render.js";
 
 const container = document.getElementById("root");
 
-const JonasApp = (props) => {
+const handleChange = (e) => {
+  render(e.target.value);
+};
+
+const Counter = () => {
+  const [state, setState] = useState(1);
   return createElement(
-    "p",
-    null,
-    props.name,
-    createElement(MaxwellApp, { name: "Maxwell" })
+    "h1",
+    { onclick: () => setState((prev) => prev + 1) },
+    state
   );
 };
-const MaxwellApp = (props) => {
-  return createElement("h2", null, props.name);
-};
-const element2 = createElement(JonasApp, { name: "Jonas" });
-console.log("渲染开始");
-render(element2, container);
+
+const element = createElement(Counter);
+render(element, container);
