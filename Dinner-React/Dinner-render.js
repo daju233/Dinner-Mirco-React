@@ -1,5 +1,6 @@
 //创建fiber的dom
 function createDom(fiber) {
+  console.log("createDom", fiber.type);
   const dom =
     fiber.type === "TEXT_ELEMENT"
       ? document.createTextNode("")
@@ -10,20 +11,18 @@ function createDom(fiber) {
     .forEach((name) => {
       dom[name] = fiber.props[name];
     });
-  // //递归渲染子元素
-  // fiber.props.children.forEach((child) => render(child, dom));
-  // //追加到父节点
-  // container.appendChild(dom);
   return dom;
 }
 
 //渲染root
 //Commit Phase
 function commitRoot() {
+  console.log("commitRoot", wipRoot);
   deletions.forEach((item) => commitWork(item));
   commitWork(wipRoot.child);
   // commit完成后，把wipRoot变为currentRoot
   currentFiber = wipRoot;
+  console.log(currentFiber);
   wipRoot = null;
 }
 
@@ -36,11 +35,14 @@ function render(element, container) {
     },
     alternate: currentFiber,
   };
+
+  console.log("render", element, container, wipRoot);
   deletions = [];
   nextUnitOfWork = wipRoot;
 }
 
 function commitWork(fiber) {
+  console.log("commitWork", fiber);
   if (!fiber) {
     return;
   }
@@ -80,15 +82,6 @@ function updateDom(dom, prevProps, nextProps) {
       //此处name应当是一个函数
       dom[name] = "";
     });
-  //删除组件
-  function commitDeletion(fiber, domParent) {
-    if (fiber.dom) {
-      domParent.removeChild(fiber.dom);
-    } else {
-      commitDeletion(fiber.child, domParent);
-      //为什么函数组件要向下查找？？？---因为函数组件嵌套后最终返回的是一个DOM节点，只能通过操作这个DOM节点删除函数组件和子节点
-    }
-  }
   Object.keys(nextProps)
     .filter(isProperty)
     .filter(isNew(prevProps, nextProps))
@@ -98,9 +91,19 @@ function updateDom(dom, prevProps, nextProps) {
       dom[name] = nextProps[name];
     });
 }
+//删除组件
+function commitDeletion(fiber, domParent) {
+  if (fiber.dom) {
+    domParent.removeChild(fiber.dom);
+  } else {
+    commitDeletion(fiber.child, domParent);
+    //为什么函数组件要向下查找？？？---因为函数组件嵌套后最终返回的是一个DOM节点，只能通过操作这个DOM节点删除函数组件和子节点
+  }
+}
 
 //启动渲染进程
 function workLoop(deadline) {
+  console.log("渲染进程，启动！", nextUnitOfWork);
   let shouldYield = false;
   while (nextUnitOfWork && !shouldYield) {
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
@@ -115,6 +118,7 @@ function workLoop(deadline) {
 requestIdleCallback(workLoop);
 
 function performUnitOfWork(fiber) {
+  console.log("performUnitOfWork", fiber);
   const isFunctionComponent = fiber.type instanceof Function;
   if (isFunctionComponent) {
     updateFunctionComponent(fiber);
@@ -123,6 +127,7 @@ function performUnitOfWork(fiber) {
   }
   //返回子节点
   if (fiber.child) {
+    console.log("fiber.child", fiber.child);
     return fiber.child;
   }
   //无子节点则返回兄弟节点，无兄弟节点则返回父节点
@@ -147,6 +152,7 @@ const updateHostComponent = (fiber) => {
 
 const updateFunctionComponent = (fiber) => {
   const children = [fiber.type(fiber.props)];
+  console.log("fuctionComponent", fiber, children);
   reconclieChildren(fiber, children);
 };
 
@@ -154,6 +160,7 @@ function reconclieChildren(wipFiber, elements) {
   let index = 0;
   let oldFiber = wipFiber.alternate && wipFiber.alternate.child;
   let prevSibling = null;
+  console.log(elements);
   //添加与fiber同一层的subling
   while (index < elements.length || oldFiber != null) {
     const element = elements[index];
@@ -193,6 +200,7 @@ function reconclieChildren(wipFiber, elements) {
 
     if (index === 0) {
       wipFiber.child = newFiber;
+      console.log(wipFiber, wipFiber.child);
     } else {
       prevSibling.sibling = newFiber;
     }
